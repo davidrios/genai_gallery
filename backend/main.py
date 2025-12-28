@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List
 
 import models
@@ -14,6 +15,11 @@ from database import engine, get_db
 from config import IMAGES_DIR
 
 models.Base.metadata.create_all(bind=engine)
+
+# Create FTS5 table if not exists
+with engine.connect() as connection:
+    connection.execute(text("CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(image_id UNINDEXED, content)"))
+    connection.commit()
 
 app = FastAPI()
 
@@ -30,10 +36,33 @@ app.add_middleware(
 app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")
 
 @app.get("/api/images")
-def list_images(sort: str = "desc", db: Session = Depends(get_db)):
+def list_images(sort: str = "desc", q: str = None, db: Session = Depends(get_db)):
     sync_images(db)
     
     query = db.query(models.Image)
+    
+    if q:
+        # Check for exact key:value search
+        if ':' in q:
+            key, val = q.split(':', 1)
+            query = query.join(models.ImageMetadata).filter(
+                models.ImageMetadata.key == key.strip(),
+                models.ImageMetadata.value.like(f"%{val.strip()}%")
+            )
+        else:
+            # FTS Search
+            # We subquery the search_index for matching IDs
+            # Using raw SQL for the match
+            # "SELECT image_id FROM search_index WHERE search_index MATCH :q"
+            # And filter Image.id IN (...)
+            
+            # Sanitization for FTS5 (basic)
+            safe_q = q.replace('"', '""')
+            fts_sql = text("SELECT image_id FROM search_index WHERE search_index MATCH :q")
+            matched_ids = [row[0] for row in db.execute(fts_sql, {"q": f'"{safe_q}"'}).fetchall()]
+            
+            query = query.filter(models.Image.id.in_(matched_ids))
+
     if sort == "asc":
         query = query.order_by(models.Image.created_at.asc())
     else:
@@ -50,7 +79,7 @@ def get_image_details(image_id: str, db: Session = Depends(get_db)):
     return image
 
 @app.get("/api/browse")
-def browse(path: str = "", sort: str = "desc", db: Session = Depends(get_db)):
+def browse(path: str = "", sort: str = "desc", q: str = None, db: Session = Depends(get_db)):
     # Security check to prevent path traversal
     if ".." in path or path.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid path")
@@ -64,30 +93,47 @@ def browse(path: str = "", sort: str = "desc", db: Session = Depends(get_db)):
 
     sync_images(db)
 
-    # List subdirectories
-    directories = []
-    try:
-        with os.scandir(full_path) as it:
-            for entry in it:
-                if entry.is_dir() and not entry.name.startswith('.'):
-                    directories.append({
-                        "name": entry.name,
-                        "path": os.path.join(path, entry.name) if path else entry.name
-                    })
-    except OSError:
-        pass
+    # List subdirectories (only if not searching, or keep them?)
+    # If searching, we probably want to search everything recursively, ignoring the current directory Browse?
+    # Or search only within this directory? 
+    # Logic: Search usually implies "find anywhere". 
+    # If q is present, we ignore directory structure and return all matching images.
     
-    directories.sort(key=lambda x: x["name"])
+    directories = []
+    if not q:
+        try:
+            with os.scandir(full_path) as it:
+                for entry in it:
+                    if entry.is_dir() and not entry.name.startswith('.'):
+                        directories.append({
+                            "name": entry.name,
+                            "path": os.path.join(path, entry.name) if path else entry.name
+                        })
+        except OSError:
+            pass
+        directories.sort(key=lambda x: x["name"])
 
-    # List images in this directory (from DB)
+    # List images
     query = db.query(models.Image)
     
-    # Filter by parent directory
-    # We want images whose relative path's dirname matches 'path'
-    # Since DB usage of functions can be tricky across different DBs, we'll fetch wider or filter in python?
-    # Actually, SQLite 'LIKE' is simpler.
-    # Root: path has no slashes.
-    # Subdir: path starts with 'subdir/' and has no more slashes after that.
+    if q:
+        # Search Mode: Global Search (ignores path)
+        if ':' in q:
+            key, val = q.split(':', 1)
+            query = query.join(models.ImageMetadata).filter(
+                models.ImageMetadata.key == key.strip(),
+                models.ImageMetadata.value.like(f"%{val.strip()}%")
+            )
+        else:
+            safe_q = q.replace('"', '""')
+            fts_sql = text("SELECT image_id FROM search_index WHERE search_index MATCH :q")
+            matched_ids = [row[0] for row in db.execute(fts_sql, {"q": f'"{safe_q}"'}).fetchall()]
+            query = query.filter(models.Image.id.in_(matched_ids))
+    else:
+        # Browse Mode: Filter by keys/indexes or filter in python later
+        # Optimization: To avoid fetching all images, maybe we can filter by path prefix? 
+        # But images stores relative path.
+        pass # We will filter by directory in Python as before if no search
     
     if sort == "asc":
         query = query.order_by(models.Image.created_at.asc())
@@ -96,16 +142,16 @@ def browse(path: str = "", sort: str = "desc", db: Session = Depends(get_db)):
 
     all_images = query.all()
     
-    # Filter in python for simplicity and reliability with path strings
-    # This might be slow if 100k images, but ok for personal gallery.
-    # Optimization: Filter by prefix in SQL first if not root.
-    
     results = []
-    for img in all_images:
-        img_dir = os.path.dirname(img.path)
-        # Normalize for comparison
-        if img_dir == path:
-            results.append(img)
+    if q:
+        # Return all results
+        results = all_images
+    else:
+        # Filter by current directory
+        for img in all_images:
+            img_dir = os.path.dirname(img.path)
+            if img_dir == path:
+                results.append(img)
             
     return {
         "directories": directories,
@@ -331,6 +377,18 @@ def sync_images(db: Session):
     
                             for k, v in meta_items:
                                 db.add(models.ImageMetadata(image_id=image_to_process.id, key=k, value=v))
+                        
+                            # Update Search Index
+                            # We delete old FTS entry first
+                            db.execute(text("DELETE FROM search_index WHERE image_id = :id"), {"id": image_to_process.id})
+                            
+                            # Aggregate content: path + prompt + all metadata values
+                            search_content = [image_to_process.path, getattr(image_to_process, 'prompt', '') or ""]
+                            search_content.extend([v for k, v in meta_items])
+                            full_text = " ".join(search_content)
+                            
+                            db.execute(text("INSERT INTO search_index (image_id, content) VALUES (:id, :content)"), 
+                                       {"id": image_to_process.id, "content": full_text})
         
         db.commit()
         last_sync_time = time.time()

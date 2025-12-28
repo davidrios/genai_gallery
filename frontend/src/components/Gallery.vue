@@ -17,12 +17,14 @@ const isLoadingDetails = ref(false);
 // Derived state from URL
 const currentPath = computed(() => (route.query.path as string) || '');
 const sortOrder = computed(() => (route.query.sort as 'asc' | 'desc') || 'desc');
+const searchQuery = ref((route.query.q as string) || '');
+let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const fetchContent = async () => {
   loading.value = true;
   error.value = null;
   try {
-    const response = await api.browse(currentPath.value, sortOrder.value);
+    const response = await api.browse(currentPath.value, sortOrder.value, searchQuery.value);
     images.value = response.images;
     directories.value = response.directories;
   } catch (e) {
@@ -33,9 +35,26 @@ const fetchContent = async () => {
   }
 };
 
+const onSearchInput = () => {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        const query = { ...route.query };
+        if (searchQuery.value) {
+            query.q = searchQuery.value;
+        } else {
+            delete query.q;
+        }
+        router.push({ query });
+    }, 500); // 500ms debounce
+};
+
 watch(
   () => route.query,
-  () => {
+  (newQuery) => {
+    // Update search query if it changed in URL (e.g. back button)
+    if (newQuery.q !== searchQuery.value) {
+        searchQuery.value = (newQuery.q as string) || '';
+    }
     fetchContent();
   }
 );
@@ -176,8 +195,25 @@ onUnmounted(() => {
              </button>
         </template>
       </div>
+      
+      <div class="flex-1 max-w-lg mx-4">
+        <div class="relative group">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg class="h-5 w-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <input 
+                v-model="searchQuery"
+                @input="onSearchInput"
+                type="text" 
+                class="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg leading-5 bg-white dark:bg-gray-800 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 sm:text-sm transition-all shadow-sm text-gray-900 dark:text-gray-100" 
+                placeholder="Search metadata (e.g. seed:123 or 'cyberpunk')" 
+            />
+        </div>
+      </div>
 
-      <button
+      <button 
         @click="toggleSort"
         class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
       >

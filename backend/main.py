@@ -1,9 +1,14 @@
 import os
 import hashlib
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from typing import List
+import shutil
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
@@ -158,6 +163,177 @@ def browse(path: str = "", sort: str = "desc", q: str = None, db: Session = Depe
         "images": results
     }
 
+@app.post("/api/upload", response_model=List[schemas.Image])
+async def upload_images(
+    files: List[UploadFile] = File(...),
+    filename_prefix: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    # 1. Validation and Path Resolution
+    # Parse prefix into directory and base filename
+    # Allow slashes in prefix to denote subdirectories
+    prefix_path = filename_prefix.strip("/")
+    
+    # Security check
+    if ".." in prefix_path or prefix_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid prefix path")
+
+    # Split into directory and base prefix
+    # If prefix ends with slash, base is empty? No, traditionally prefix is "folder/myimage" -> folder, myimage
+    # If just "folder/", assume base is "image"? Or just require full prefix?
+    # User said: "Suppose the prefix is `prefix`... `prefix_00001.png`". 
+    # "filename_prefix can contain `/`... parent folders will be created".
+    # So "folder/sub/img" -> dir="folder/sub", base="img"
+    
+    dirname = os.path.dirname(prefix_path)
+    basename = os.path.basename(prefix_path)
+    
+    full_dir_path = os.path.join(IMAGES_DIR, dirname)
+    
+    # Ensure directory exists
+    os.makedirs(full_dir_path, exist_ok=True)
+    
+    # 2. Find next sequence number
+    # We look for files matching basename_XXXXX.* in the directory
+    # Regex: escaped_basename + _ + 5 digits + dot + extension
+    
+    # Escape basename for regex
+    safe_basename = re.escape(basename)
+    pattern = re.compile(rf"^{safe_basename}_(\d{{5}})\.[a-zA-Z0-9]+$")
+    
+    max_idx = 0
+    try:
+        with os.scandir(full_dir_path) as it:
+            for entry in it:
+                if entry.is_file():
+                    match = pattern.match(entry.name)
+                    if match:
+                        idx = int(match.group(1))
+                        if idx > max_idx:
+                            max_idx = idx
+    except OSError:
+        pass # Directory might be new/empty if just created, or permission error (shouldn't happen with makedirs)
+        
+    start_idx = max_idx + 1
+    created_images = []
+    
+    # 3. Save files
+    for i, file in enumerate(files):
+        current_idx = start_idx + i
+        
+        # Get extension from original filename
+        # Fallback to .png if unknown? Or just use original?
+        original_ext = os.path.splitext(file.filename)[1].lower()
+        if not original_ext:
+            original_ext = ".png" # Default
+            
+        new_filename = f"{basename}_{current_idx:05d}{original_ext}"
+        save_path = os.path.join(full_dir_path, new_filename)
+        
+        # Save to disk
+        try:
+            with open(save_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        except Exception as e:
+            print(f"Failed to save file {new_filename}: {e}")
+            continue
+
+        # 4. Add to Database
+        # Calculate hash
+        file_hash = calculate_sha1(save_path)
+        if not file_hash:
+            continue
+            
+        rel_path = os.path.relpath(save_path, IMAGES_DIR)
+        created_at = datetime.now()
+        
+        # Check if hash already exists? 
+        # API usually implies new content. If duplicate hash exists, we might reuse the entry or update path?
+        # sync_images handles this. Let's try to mimic sync logic or just do a quick insert.
+        # But we must be careful not to conflict with existing UNIQUE(path) if we somehow overwrote a file (unlikely with seq).
+        # However, reusing sync_images logic for this single file is safer but extracting it is complex.
+        
+        # Check existing path
+        existing_path_img = db.query(models.Image).filter(models.Image.path == rel_path).first()
+        if existing_path_img:
+            db.delete(existing_path_img)
+            db.flush()
+            
+        # Check existing hash
+        existing_img = db.query(models.Image).filter(models.Image.id == file_hash).first()
+        
+        img_obj = None
+        is_new_meta = False
+        
+        if existing_img:
+            # File content existed elsewhere or previously.
+            # We are creating a NEW copy at `rel_path`. 
+            # If `existing_img` points to a different path, we have a duplicate.
+            # Our model enforces UNIQUE path, but ID is primary key.
+            # ID is hash. So identical images share ID?
+            # models.Image(id=Hash, path=Prop). 
+            # If ID is PK, we can't have two rows with same Hash but different Path.
+            # Wait, `id = Column(String, primary_key=True)`.
+            # If I copy an image, the new file has same Hash.
+            # Database Integrity Error if I try to insert new row with same ID!
+            # So... my data model assumes UNIQUE HASH across the gallery (deduplication).
+            # If `existing_img` exists, it means we already have this image at `existing_img.path`.
+            # But we just saved it to `rel_path`.
+            # If I want to support duplicates in FS but dedup in DB, I must update the DB to point to *one* of them?
+            # Or the Model is wrong for a standard gallery where duplicates are allowed?
+            # "Add to Database" implies we track it.
+            # If user uploads duplicate, maybe just return existing?
+            # BUT the file IS on disk at `new_filename`.
+            # If the DB tracks `path`, and `id` is PK, then we can only track ONE path per hash.
+            # This is a limitation of current schema. 
+            # Let's assume for now we update the path to the NEW one (most recent), 
+            # OR we fail silently on DB update and just return existing.
+            # Let's update path to the new one as it's "freshly uploaded".
+            
+            existing_img.path = rel_path
+            existing_img.created_at = created_at
+            db.add(existing_img)
+            db.commit() # Commit to save path change
+            img_obj = existing_img
+            # Metadata might already exist
+        else:
+            # New unique image
+            img_obj = models.Image(id=file_hash, path=rel_path, created_at=created_at)
+            db.add(img_obj)
+            db.commit()
+            is_new_meta = True
+            
+        # 5. Extract Metadata
+        if is_new_meta or not img_obj.metadata_items: # re-extract if missing
+             # Extract
+            if save_path.lower().endswith('.png'):
+                meta_items = extract_metadata(save_path)
+                
+                # Delete old
+                db.query(models.ImageMetadata).filter(models.ImageMetadata.image_id == img_obj.id).delete()
+                
+                # Insert new
+                new_meta_rows = []
+                for k, v in meta_items:
+                    new_meta_rows.append(models.ImageMetadata(image_id=img_obj.id, key=k, value=v))
+                db.add_all(new_meta_rows)
+                
+                # Update FTS
+                db.execute(text("DELETE FROM search_index WHERE image_id = :id"), {"id": img_obj.id})
+                search_content = [img_obj.path, getattr(img_obj, 'prompt', '') or ""]
+                search_content.extend([v for k, v in meta_items])
+                full_text = " ".join(search_content)
+                db.execute(text("INSERT INTO search_index (image_id, content) VALUES (:id, :content)"), 
+                           {"id": img_obj.id, "content": full_text})
+                
+                db.commit()
+                
+        # Reload to get relationships
+        db.refresh(img_obj)
+        created_images.append(img_obj)
+        
+    return created_images
+
 def calculate_sha1(filepath: str) -> str:
     sha1 = hashlib.sha1()
     try:
@@ -170,8 +346,6 @@ def calculate_sha1(filepath: str) -> str:
         return sha1.hexdigest()
     except IOError:
         return None
-
-    db.commit()
 
 def extract_metadata(filepath: str) -> dict:
     """

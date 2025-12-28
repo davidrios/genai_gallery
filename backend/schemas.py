@@ -18,5 +18,14 @@ class ImageBase(BaseModel):
     class Config:
         from_attributes = True
 
+
 class Image(ImageBase):
     metadata_items: List[ImageMetadataBase] = []
+
+class PaginatedImageResponse(BaseModel):
+    items: List[Image]
+    total: int
+    page: int
+    size: int
+    pages: int
+

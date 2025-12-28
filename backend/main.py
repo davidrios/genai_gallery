@@ -28,10 +28,14 @@ with engine.connect() as connection:
 
 app = FastAPI()
 
+
 # Allow CORS for frontend
+allowed_origins_env = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:8188")
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -161,6 +165,56 @@ def browse(path: str = "", sort: str = "desc", q: str = None, db: Session = Depe
     return {
         "directories": directories,
         "images": results
+    }
+
+@app.get("/api/search", response_model=schemas.PaginatedImageResponse)
+def search_images(
+    q: str = None, 
+    page: int = 1, 
+    limit: int = 12, 
+    sort: str = "desc", 
+    db: Session = Depends(get_db)
+):
+    import math
+    sync_images(db)
+    
+    query = db.query(models.Image)
+    
+    # 1. Apply Filtering (Same as list_images)
+    if q:
+        if ':' in q:
+            key, val = q.split(':', 1)
+            query = query.join(models.ImageMetadata).filter(
+                models.ImageMetadata.key == key.strip(),
+                models.ImageMetadata.value.like(f"%{val.strip()}%")
+            )
+        else:
+            safe_q = q.replace('"', '""')
+            fts_sql = text("SELECT image_id FROM search_index WHERE search_index MATCH :q")
+            matched_ids = [row[0] for row in db.execute(fts_sql, {"q": f'"{safe_q}"'}).fetchall()]
+            query = query.filter(models.Image.id.in_(matched_ids))
+
+    # 2. Apply Sorting
+    if sort == "asc":
+        query = query.order_by(models.Image.created_at.asc())
+    else:
+        query = query.order_by(models.Image.created_at.desc())
+        
+    # 3. Pagination
+    total_count = query.count()
+    offset = (page - 1) * limit
+    
+    # Apply limit/offset
+    images = query.offset(offset).limit(limit).all()
+    
+    total_pages = math.ceil(total_count / limit) if limit > 0 else 1
+    
+    return {
+        "items": images,
+        "total": total_count,
+        "page": page,
+        "size": limit,
+        "pages": total_pages
     }
 
 @app.post("/api/upload", response_model=List[schemas.Image])

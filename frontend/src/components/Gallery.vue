@@ -100,6 +100,11 @@ const currentImageIndex = computed(() => {
 const hasPrevious = computed(() => currentImageIndex.value > 0);
 const hasNext = computed(() => currentImageIndex.value !== -1 && currentImageIndex.value < images.value.length - 1);
 
+const sortedMetadata = computed(() => {
+    if (!selectedImage.value?.metadata_items) return [];
+    return [...selectedImage.value.metadata_items].sort((a, b) => a.key.localeCompare(b.key));
+});
+
 const navigateImage = async (direction: 'next' | 'prev') => {
     if (currentImageIndex.value === -1) return;
     
@@ -291,7 +296,7 @@ onUnmounted(() => {
                     <div v-else-if="selectedImage.metadata_items && selectedImage.metadata_items.length > 0">
                         <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Generation Params</h3>
                         <div class="space-y-3">
-                            <div v-for="item in selectedImage.metadata_items" :key="item.key" class="group">
+                            <div v-for="item in sortedMetadata" :key="item.key" class="group">
                                 <dt class="text-xs text-indigo-400 font-medium mb-1 break-all">{{ item.key }}</dt>
                                 <dd class="text-sm text-gray-300 bg-gray-800/50 p-2 rounded border border-transparent group-hover:border-gray-700 break-words font-mono transition-colors">
                                     {{ item.value }}

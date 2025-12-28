@@ -3,4 +3,5 @@ uvicorn
 sqlalchemy
 pydantic
 python-multipart
+Pillow
 # aiofiles might be useful for serving files if we go that route, but statichandler is built in

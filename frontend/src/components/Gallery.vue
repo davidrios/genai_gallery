@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import type { Image, Directory } from '@/types';
@@ -32,11 +32,6 @@ const fetchContent = async () => {
     loading.value = false;
   }
 };
-
-// Initial load and watch for URL changes
-onMounted(() => {
-  fetchContent();
-});
 
 watch(
   () => route.query,
@@ -80,7 +75,6 @@ const openImage = async (image: Image) => {
   selectedImage.value = image;
   isLoadingDetails.value = true;
   try {
-    // Fetch full details including metadata
     const details = await api.getImage(image.id);
     selectedImage.value = details;
   } catch (e) {
@@ -92,7 +86,53 @@ const openImage = async (image: Image) => {
 
 const closeOverlay = () => {
     selectedImage.value = null;
+    isLoadingDetails.value = false;
 };
+
+// Navigation
+const currentImageIndex = computed(() => {
+    if (!selectedImage.value) return -1;
+    // Match by ID, but simple array index is enough since we have full list
+    // Use the ID to match against list
+    return images.value.findIndex(img => img.id === selectedImage.value?.id || img.path === selectedImage.value?.path);
+});
+
+const hasPrevious = computed(() => currentImageIndex.value > 0);
+const hasNext = computed(() => currentImageIndex.value !== -1 && currentImageIndex.value < images.value.length - 1);
+
+const navigateImage = async (direction: 'next' | 'prev') => {
+    if (currentImageIndex.value === -1) return;
+    
+    const newIndex = direction === 'next' ? currentImageIndex.value + 1 : currentImageIndex.value - 1;
+    
+    if (newIndex >= 0 && newIndex < images.value.length) {
+        // Optimistic update
+        selectedImage.value = images.value[newIndex];
+        // Fetch details
+        openImage(images.value[newIndex]);
+    }
+};
+
+const handleKeydown = (e: KeyboardEvent) => {
+    if (!selectedImage.value) return;
+    
+    if (e.key === 'ArrowLeft') {
+        navigateImage('prev');
+    } else if (e.key === 'ArrowRight') {
+        navigateImage('next');
+    } else if (e.key === 'Escape') {
+        closeOverlay();
+    }
+};
+
+onMounted(() => {
+    fetchContent();
+    window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
@@ -201,7 +241,26 @@ const closeOverlay = () => {
 
         <div class="flex w-full h-full max-w-7xl mx-auto p-4 gap-6" @click.stop>
             <!-- Media Viewer -->
-            <div class="flex-1 flex items-center justify-center overflow-hidden bg-black/50 rounded-lg relative">
+            <div class="flex-1 flex items-center justify-center overflow-hidden bg-black/50 rounded-lg relative group/media">
+                <!-- Navigation Buttons -->
+                <button 
+                    v-if="hasPrevious"
+                    class="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 hover:bg-black/70 text-white rounded-full opacity-0 group-hover/media:opacity-100 transition-all duration-300 backdrop-blur-sm z-10"
+                    @click.stop="navigateImage('prev')"
+                    title="Previous (Left Arrow)"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                
+                <button 
+                    v-if="hasNext"
+                    class="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 hover:bg-black/70 text-white rounded-full opacity-0 group-hover/media:opacity-100 transition-all duration-300 backdrop-blur-sm z-10"
+                    @click.stop="navigateImage('next')"
+                    title="Next (Right Arrow)"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+
                 <video 
                   v-if="isVideo(selectedImage.path)"
                   :src="api.getImageUrl(selectedImage.path)" 

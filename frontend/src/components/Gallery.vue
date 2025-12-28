@@ -102,14 +102,26 @@ const hasNext = computed(() => currentImageIndex.value !== -1 && currentImageInd
 
 const sortedMetadata = computed(() => {
     if (!selectedImage.value?.metadata_items) return [];
-    return [...selectedImage.value.metadata_items].sort((a, b) => a.key.localeCompare(b.key));
+
+    const grouped: Record<string, string[]> = {};
+    for (const item of selectedImage.value.metadata_items) {
+        if (!grouped[item.key]) {
+            grouped[item.key] = [];
+        }
+        grouped[item.key].push(item.value);
+    }
+
+    return Object.keys(grouped).sort().map(key => ({
+        key,
+        values: grouped[key]
+    }));
 });
 
 const navigateImage = async (direction: 'next' | 'prev') => {
     if (currentImageIndex.value === -1) return;
-    
+
     const newIndex = direction === 'next' ? currentImageIndex.value + 1 : currentImageIndex.value - 1;
-    
+
     if (newIndex >= 0 && newIndex < images.value.length) {
         // Optimistic update
         selectedImage.value = images.value[newIndex];
@@ -120,7 +132,7 @@ const navigateImage = async (direction: 'next' | 'prev') => {
 
 const handleKeydown = (e: KeyboardEvent) => {
     if (!selectedImage.value) return;
-    
+
     if (e.key === 'ArrowLeft') {
         navigateImage('prev');
     } else if (e.key === 'ArrowRight') {
@@ -144,8 +156,8 @@ onUnmounted(() => {
   <div class="container mx-auto p-4">
     <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
       <div class="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-        <button 
-            @click="navigateTo('')" 
+        <button
+            @click="navigateTo('')"
             class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title="Home"
         >
@@ -156,7 +168,7 @@ onUnmounted(() => {
         </button>
         <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
              <span class="text-gray-400">/</span>
-             <button 
+             <button
                 @click="navigateTo(crumb.path)"
                 class="hover:text-indigo-600 dark:hover:text-indigo-400 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap"
              >
@@ -164,8 +176,8 @@ onUnmounted(() => {
              </button>
         </template>
       </div>
-      
-      <button 
+
+      <button
         @click="toggleSort"
         class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
       >
@@ -173,7 +185,7 @@ onUnmounted(() => {
         <span class="text-xs uppercase bg-gray-100 dark:bg-gray-900 px-2 py-0.5 rounded">{{ sortOrder }}</span>
       </button>
     </div>
-    
+
     <div v-if="loading" class="text-center py-10">
       <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
       <p class="mt-4 text-gray-600 dark:text-gray-400">Loading content...</p>
@@ -187,8 +199,8 @@ onUnmounted(() => {
     <div v-else>
       <!-- Subdirectories -->
       <div v-if="directories.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
-          <div 
-            v-for="dir in directories" 
+          <div
+            v-for="dir in directories"
             :key="dir.path"
             @click="navigateTo(dir.path)"
             class="cursor-pointer group flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200"
@@ -204,18 +216,18 @@ onUnmounted(() => {
       <div v-if="images.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <div v-for="image in images" :key="image.id" class="group relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300">
           <div class="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 dark:bg-gray-700 xl:aspect-w-7 xl:aspect-h-8">
-            <video 
+            <video
               v-if="isVideo(image.path)"
-              :src="api.getImageUrl(image.path)" 
+              :src="api.getImageUrl(image.path)"
               controls
               preload="metadata"
               class="h-full w-full object-cover object-center bg-black"
               @click.stop
             ></video>
-            <img 
+            <img
               v-else
-              :src="api.getImageUrl(image.path)" 
-              :alt="image.path" 
+              :src="api.getImageUrl(image.path)"
+              :alt="image.path"
               class="h-full w-full object-cover object-center group-hover:opacity-75 transition-opacity duration-300"
               loading="lazy"
             />
@@ -224,7 +236,7 @@ onUnmounted(() => {
             <h3 class="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">{{ image.path.split('/').pop() }}</h3>
             <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ new Date(image.created_at).toLocaleDateString() }}</p>
           </div>
-          
+
           <div v-if="!isVideo(image.path)" class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                <button @click.stop="openImage(image)" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
                    View Details
@@ -232,10 +244,10 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      
+
       <!-- Overlay -->
       <div v-if="selectedImage" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90" @click="closeOverlay">
-        
+
         <!-- Close Button -->
         <button @click="closeOverlay" class="absolute top-4 right-4 text-white hover:text-gray-300 z-50 p-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -248,7 +260,7 @@ onUnmounted(() => {
             <!-- Media Viewer -->
             <div class="flex-1 flex items-center justify-center overflow-hidden bg-black/50 rounded-lg relative group/media">
                 <!-- Navigation Buttons -->
-                <button 
+                <button
                     v-if="hasPrevious"
                     class="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 hover:bg-black/70 text-white rounded-full opacity-0 group-hover/media:opacity-100 transition-all duration-300 backdrop-blur-sm z-10"
                     @click.stop="navigateImage('prev')"
@@ -256,8 +268,8 @@ onUnmounted(() => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
-                
-                <button 
+
+                <button
                     v-if="hasNext"
                     class="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 hover:bg-black/70 text-white rounded-full opacity-0 group-hover/media:opacity-100 transition-all duration-300 backdrop-blur-sm z-10"
                     @click.stop="navigateImage('next')"
@@ -266,17 +278,17 @@ onUnmounted(() => {
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </button>
 
-                <video 
+                <video
                   v-if="isVideo(selectedImage.path)"
-                  :src="api.getImageUrl(selectedImage.path)" 
+                  :src="api.getImageUrl(selectedImage.path)"
                   controls
                   autoplay
                   class="max-w-full max-h-full object-contain"
                 ></video>
-                <img 
+                <img
                   v-else
-                  :src="api.getImageUrl(selectedImage.path)" 
-                  :alt="selectedImage.path" 
+                  :src="api.getImageUrl(selectedImage.path)"
+                  :alt="selectedImage.path"
                   class="max-w-full max-h-full object-contain"
                 />
             </div>
@@ -287,24 +299,27 @@ onUnmounted(() => {
                     <h2 class="text-lg font-semibold text-gray-100 truncate" :title="selectedImage.path">{{ selectedImage.path.split('/').pop() }}</h2>
                     <p class="text-sm text-gray-500 mt-1">{{ new Date(selectedImage.created_at).toLocaleString() }}</p>
                 </div>
-                
+
                 <div class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                     <div v-if="isLoadingDetails" class="text-center py-8">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto"></div>
                     </div>
-                    
+
                     <div v-else-if="selectedImage.metadata_items && selectedImage.metadata_items.length > 0">
                         <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Generation Params</h3>
                         <div class="space-y-3">
                             <div v-for="item in sortedMetadata" :key="item.key" class="group">
                                 <dt class="text-xs text-indigo-400 font-medium mb-1 break-all">{{ item.key }}</dt>
                                 <dd class="text-sm text-gray-300 bg-gray-800/50 p-2 rounded border border-transparent group-hover:border-gray-700 break-words font-mono transition-colors">
-                                    {{ item.value }}
+                                    <ul v-if="item.values.length > 1" class="list-disc list-inside">
+                                         <li v-for="(val, idx) in item.values" :key="idx">{{ val }}</li>
+                                    </ul>
+                                    <span v-else>{{ item.values[0] }}</span>
                                 </dd>
                             </div>
                         </div>
                     </div>
-                    
+
                     <div v-else class="text-center py-10 text-gray-600 italic">
                         No metadata available for this image.
                     </div>
@@ -312,7 +327,7 @@ onUnmounted(() => {
             </div>
         </div>
       </div>
-      
+
       <div v-if="directories.length === 0 && images.length === 0" class="text-center py-20 text-gray-500">
           Empty directory.
       </div>

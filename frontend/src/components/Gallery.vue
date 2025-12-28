@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/services/api';
 import type { Image, Directory } from '@/types';
+
+const route = useRoute();
+const router = useRouter();
 
 const images = ref<Image[]>([]);
 const directories = ref<Directory[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const sortOrder = ref<'asc' | 'desc'>('desc');
-const currentPath = ref<string>('');
+
+// Derived state from URL
+const currentPath = computed(() => (route.query.path as string) || '');
+const sortOrder = computed(() => (route.query.sort as 'asc' | 'desc') || 'desc');
 
 const fetchContent = async () => {
   loading.value = true;
@@ -25,26 +31,32 @@ const fetchContent = async () => {
   }
 };
 
+// Initial load and watch for URL changes
 onMounted(() => {
   fetchContent();
 });
 
+watch(
+  () => route.query,
+  () => {
+    fetchContent();
+  }
+);
+
 const toggleSort = () => {
-  sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
-  fetchContent();
+  const newSort = sortOrder.value === 'desc' ? 'asc' : 'desc';
+  router.push({ query: { ...route.query, sort: newSort } });
 };
 
 const navigateTo = (path: string) => {
-  currentPath.value = path;
-  fetchContent();
-};
-
-const goUp = () => {
-   if (!currentPath.value) return;
-   const parts = currentPath.value.split('/');
-   parts.pop();
-   const newPath = parts.join('/');
-   navigateTo(newPath);
+  // If path is empty, remove it from query
+  const query = { ...route.query };
+  if (path) {
+    query.path = path;
+  } else {
+    delete query.path;
+  }
+  router.push({ query });
 };
 
 const breadcrumbs = computed(() => {
@@ -67,7 +79,10 @@ const breadcrumbs = computed(() => {
             class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title="Home"
         >
-             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600 dark:text-gray-300"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600 dark:text-gray-300">
+               <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+               <polyline points="9 22 9 12 15 12 15 22"></polyline>
+             </svg>
         </button>
         <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
              <span class="text-gray-400">/</span>
@@ -108,7 +123,9 @@ const breadcrumbs = computed(() => {
             @click="navigateTo(dir.path)"
             class="cursor-pointer group flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200"
           >
-             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-400 dark:text-indigo-300 group-hover:scale-110 transition-transform"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"/></svg>
+             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-400 dark:text-indigo-300 group-hover:scale-110 transition-transform">
+               <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"></path>
+             </svg>
              <span class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200 truncate w-full text-center">{{ dir.name }}</span>
           </div>
       </div>

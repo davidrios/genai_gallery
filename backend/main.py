@@ -281,18 +281,6 @@ def sync_images(db: Session):
         if time.time() - last_sync_time < SYNC_COOLDOWN:
             return
             
-        # One-time migration: Remove 'inputs.' prefix from existing metadata
-        # We do this here or on startup. Doing it here ensures it runs within a session context if we needed one, 
-        # but we passed db session.
-        # However, checking every sync might be overkill, but it's a fast update if nothing matches.
-        # Better: run it on startup or just let it be. 
-        # Actually, let's just run it once here.
-        try:
-             db.execute(text("UPDATE image_metadata SET key = SUBSTR(key, 8) WHERE key LIKE 'inputs.%'"))
-             db.commit()
-        except Exception as e:
-             print(f"Migration error (harmless if already done): {e}")
-
         print("Starting sync...")
         existing_images = {img.id: img for img in db.query(models.Image).all()}
         existing_paths = {img.path: img for img in existing_images.values()}

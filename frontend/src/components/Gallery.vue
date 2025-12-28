@@ -20,18 +20,37 @@ const sortOrder = computed(() => (route.query.sort as 'asc' | 'desc') || 'desc')
 const searchQuery = ref((route.query.q as string) || '');
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
+let abortController: AbortController | null = null;
+
 const fetchContent = async () => {
+  // Cancel previous request
+  if (abortController) {
+    abortController.abort();
+  }
+  abortController = new AbortController();
+
   loading.value = true;
   error.value = null;
   try {
-    const response = await api.browse(currentPath.value, sortOrder.value, searchQuery.value);
+    const q = (route.query.q as string) || '';
+    const response = await api.browse(currentPath.value, sortOrder.value, q, abortController.signal);
     images.value = response.images;
     directories.value = response.directories;
-  } catch (e) {
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+        // Ignore abort errors
+        return;
+    }
     error.value = 'Failed to load content. Is the backend running?';
     console.error(e);
   } finally {
-    loading.value = false;
+    // Only set loading false if this request wasn't aborted
+    // (Though if aborted, we return early above, so this is mostly for success/real error)
+    if (abortController?.signal.aborted) {
+        // Do nothing, a new request is pending or we are cancelled
+    } else {
+        loading.value = false;
+    }
   }
 };
 

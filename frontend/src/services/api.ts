@@ -1,22 +1,22 @@
 import type { Image, BrowseResponse } from '../types';
 
 export const api = {
-    async getImages(sort: 'asc' | 'desc' = 'desc', search: string = ''): Promise<Image[]> {
+    async getImages(sort: 'asc' | 'desc' = 'desc', search: string = '', signal?: AbortSignal): Promise<Image[]> {
         const params = new URLSearchParams({ sort });
         if (search) params.append('q', search);
 
-        const response = await fetch(`/api/images?${params.toString()}`);
+        const response = await fetch(`/api/images?${params.toString()}`, { signal });
         if (!response.ok) {
             throw new Error('Failed to fetch images');
         }
         return response.json();
     },
 
-    async browse(path: string = "", sort: 'asc' | 'desc' = 'desc', search: string = ''): Promise<BrowseResponse> {
+    async browse(path: string = "", sort: 'asc' | 'desc' = 'desc', search: string = '', signal?: AbortSignal): Promise<BrowseResponse> {
         const params = new URLSearchParams({ path, sort });
         if (search) params.append('q', search);
 
-        const response = await fetch(`/api/browse?${params.toString()}`);
+        const response = await fetch(`/api/browse?${params.toString()}`, { signal });
         if (!response.ok) {
             throw new Error('Failed to browse directory');
         }

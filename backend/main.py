@@ -130,7 +130,7 @@ def sync_images(db: Session):
     # Walk directory
     for root, dirs, files in os.walk(IMAGES_DIR):
         for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.mov')):
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, IMAGES_DIR)
                 

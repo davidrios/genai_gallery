@@ -68,6 +68,11 @@ const breadcrumbs = computed(() => {
         return { name: part, path: accum };
     });
 });
+
+const isVideo = (path: string) => {
+    const ext = path.split('.').pop()?.toLowerCase();
+    return ['mp4', 'webm', 'mov'].includes(ext || '');
+};
 </script>
 
 <template>
@@ -134,7 +139,16 @@ const breadcrumbs = computed(() => {
       <div v-if="images.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <div v-for="image in images" :key="image.id" class="group relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300">
           <div class="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 dark:bg-gray-700 xl:aspect-w-7 xl:aspect-h-8">
+            <video 
+              v-if="isVideo(image.path)"
+              :src="api.getImageUrl(image.path)" 
+              controls
+              preload="metadata"
+              class="h-full w-full object-cover object-center bg-black"
+              @click.stop
+            ></video>
             <img 
+              v-else
               :src="api.getImageUrl(image.path)" 
               :alt="image.path" 
               class="h-full w-full object-cover object-center group-hover:opacity-75 transition-opacity duration-300"
@@ -146,7 +160,7 @@ const breadcrumbs = computed(() => {
             <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ new Date(image.created_at).toLocaleDateString() }}</p>
           </div>
           
-          <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+          <div v-if="!isVideo(image.path)" class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                <a :href="api.getImageUrl(image.path)" target="_blank" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
                    View Full
                </a>

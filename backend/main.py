@@ -48,6 +48,69 @@ def get_image_details(image_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image not found")
     return image
 
+@app.get("/api/browse")
+def browse(path: str = "", sort: str = "desc", db: Session = Depends(get_db)):
+    # Security check to prevent path traversal
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    
+    # Ensure clean relative path (empty string for root)
+    path = path.strip("/")
+    
+    full_path = os.path.join(IMAGES_DIR, path)
+    if not os.path.exists(full_path) or not os.path.isdir(full_path):
+         raise HTTPException(status_code=404, detail="Directory not found")
+
+    sync_images(db)
+
+    # List subdirectories
+    directories = []
+    try:
+        with os.scandir(full_path) as it:
+            for entry in it:
+                if entry.is_dir() and not entry.name.startswith('.'):
+                    directories.append({
+                        "name": entry.name,
+                        "path": os.path.join(path, entry.name) if path else entry.name
+                    })
+    except OSError:
+        pass
+    
+    directories.sort(key=lambda x: x["name"])
+
+    # List images in this directory (from DB)
+    query = db.query(models.Image)
+    
+    # Filter by parent directory
+    # We want images whose relative path's dirname matches 'path'
+    # Since DB usage of functions can be tricky across different DBs, we'll fetch wider or filter in python?
+    # Actually, SQLite 'LIKE' is simpler.
+    # Root: path has no slashes.
+    # Subdir: path starts with 'subdir/' and has no more slashes after that.
+    
+    if sort == "asc":
+        query = query.order_by(models.Image.created_at.asc())
+    else:
+        query = query.order_by(models.Image.created_at.desc())
+
+    all_images = query.all()
+    
+    # Filter in python for simplicity and reliability with path strings
+    # This might be slow if 100k images, but ok for personal gallery.
+    # Optimization: Filter by prefix in SQL first if not root.
+    
+    results = []
+    for img in all_images:
+        img_dir = os.path.dirname(img.path)
+        # Normalize for comparison
+        if img_dir == path:
+            results.append(img)
+            
+    return {
+        "directories": directories,
+        "images": results
+    }
+
 def calculate_sha1(filepath: str) -> str:
     sha1 = hashlib.sha1()
     try:

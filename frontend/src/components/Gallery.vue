@@ -1,20 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { api } from '@/services/api';
-import type { Image } from '@/types';
+import type { Image, Directory } from '@/types';
 
 const images = ref<Image[]>([]);
+const directories = ref<Directory[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const sortOrder = ref<'asc' | 'desc'>('desc');
+const currentPath = ref<string>('');
 
-const fetchImages = async () => {
+const fetchContent = async () => {
   loading.value = true;
   error.value = null;
   try {
-    images.value = await api.getImages(sortOrder.value);
+    const response = await api.browse(currentPath.value, sortOrder.value);
+    images.value = response.images;
+    directories.value = response.directories;
   } catch (e) {
-    error.value = 'Failed to load images. Is the backend running?';
+    error.value = 'Failed to load content. Is the backend running?';
     console.error(e);
   } finally {
     loading.value = false;
@@ -22,19 +26,60 @@ const fetchImages = async () => {
 };
 
 onMounted(() => {
-  fetchImages();
+  fetchContent();
 });
 
 const toggleSort = () => {
   sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
-  fetchImages();
+  fetchContent();
 };
+
+const navigateTo = (path: string) => {
+  currentPath.value = path;
+  fetchContent();
+};
+
+const goUp = () => {
+   if (!currentPath.value) return;
+   const parts = currentPath.value.split('/');
+   parts.pop();
+   const newPath = parts.join('/');
+   navigateTo(newPath);
+};
+
+const breadcrumbs = computed(() => {
+    if (!currentPath.value) return [];
+    const parts = currentPath.value.split('/');
+    let accum = '';
+    return parts.map(part => {
+        accum = accum ? `${accum}/${part}` : part;
+        return { name: part, path: accum };
+    });
+});
 </script>
 
 <template>
   <div class="container mx-auto p-4">
-    <div class="flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">GenAI Gallery</h1>
+    <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+      <div class="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+        <button 
+            @click="navigateTo('')" 
+            class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title="Home"
+        >
+             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600 dark:text-gray-300"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </button>
+        <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
+             <span class="text-gray-400">/</span>
+             <button 
+                @click="navigateTo(crumb.path)"
+                class="hover:text-indigo-600 dark:hover:text-indigo-400 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap"
+             >
+                {{ crumb.name }}
+             </button>
+        </template>
+      </div>
+      
       <button 
         @click="toggleSort"
         class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
@@ -46,7 +91,7 @@ const toggleSort = () => {
     
     <div v-if="loading" class="text-center py-10">
       <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-      <p class="mt-4 text-gray-600 dark:text-gray-400">Loading your masterpieces...</p>
+      <p class="mt-4 text-gray-600 dark:text-gray-400">Loading content...</p>
     </div>
 
     <div v-else-if="error" class="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded relative" role="alert">
@@ -54,32 +99,47 @@ const toggleSort = () => {
       <span class="block sm:inline"> {{ error }}</span>
     </div>
 
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-      <div v-for="image in images" :key="image.id" class="group relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300">
-        <div class="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 dark:bg-gray-700 xl:aspect-w-7 xl:aspect-h-8">
-          <img 
-            :src="api.getImageUrl(image.path)" 
-            :alt="image.path" 
-            class="h-full w-full object-cover object-center group-hover:opacity-75 transition-opacity duration-300"
-            loading="lazy"
-          />
-        </div>
-        <div class="p-4">
-          <h3 class="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">{{ image.path }}</h3>
-          <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ new Date(image.created_at).toLocaleDateString() }}</p>
-        </div>
-        
-        <!-- Hover overlay with rudimentary prompt view (expandable later) -->
-        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-             <a :href="api.getImageUrl(image.path)" target="_blank" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
-                 View Full
-             </a>
+    <div v-else>
+      <!-- Subdirectories -->
+      <div v-if="directories.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+          <div 
+            v-for="dir in directories" 
+            :key="dir.path"
+            @click="navigateTo(dir.path)"
+            class="cursor-pointer group flex flex-col items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all duration-200"
+          >
+             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-400 dark:text-indigo-300 group-hover:scale-110 transition-transform"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"/></svg>
+             <span class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200 truncate w-full text-center">{{ dir.name }}</span>
+          </div>
+      </div>
+
+      <!-- Images -->
+      <div v-if="images.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div v-for="image in images" :key="image.id" class="group relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300">
+          <div class="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 dark:bg-gray-700 xl:aspect-w-7 xl:aspect-h-8">
+            <img 
+              :src="api.getImageUrl(image.path)" 
+              :alt="image.path" 
+              class="h-full w-full object-cover object-center group-hover:opacity-75 transition-opacity duration-300"
+              loading="lazy"
+            />
+          </div>
+          <div class="p-4">
+            <h3 class="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">{{ image.path.split('/').pop() }}</h3>
+            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ new Date(image.created_at).toLocaleDateString() }}</p>
+          </div>
+          
+          <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+               <a :href="api.getImageUrl(image.path)" target="_blank" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
+                   View Full
+               </a>
+          </div>
         </div>
       </div>
-    </div>
-    
-    <div v-if="!loading && !error && images.length === 0" class="text-center py-20 text-gray-500">
-        No images found. Generate something cool!
+      
+      <div v-if="directories.length === 0 && images.length === 0" class="text-center py-20 text-gray-500">
+          Empty directory.
+      </div>
     </div>
   </div>
 </template>

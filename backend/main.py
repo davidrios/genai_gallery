@@ -1,4 +1,5 @@
 import os
+import hashlib
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,39 +29,60 @@ app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")
 
 @app.get("/api/images")
 def list_images(db: Session = Depends(get_db)):
-    # Simple sync logic: scan directory and update DB
-    # In a real app, this should be a background task or watcher
-    # For now, we'll just return what's in the DB, but populate it if empty or upon request?
-    # Let's do a quick scan to sync for this MVC
     sync_images(db)
+    # Order by created_at desc
     images = db.query(models.Image).order_by(models.Image.created_at.desc()).all()
     return images
 
-def sync_images(db: Session):
-    # Scan directory
-    fs_files = set()
-    for root, dirs, files in os.walk(IMAGES_DIR):
-        for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                fs_files.add(file)
-    
-    # Check DB
-    db_images = db.query(models.Image).all()
-    db_filenames = {img.filename for img in db_images}
-
-    # Add new
-    new_files = fs_files - db_filenames
-    for filename in new_files:
-        db_image = models.Image(filename=filename, path=os.path.join(IMAGES_DIR, filename))
-        db.add(db_image)
-    
-    # Remove missing (optional, maybe we want to keep history? leaving for now)
-    
-    db.commit()
-
-@app.get("/api/images/{filename}")
-def get_image_details(filename: str, db: Session = Depends(get_db)):
-    image = db.query(models.Image).filter(models.Image.filename == filename).first()
+@app.get("/api/images/{image_id}")
+def get_image_details(image_id: str, db: Session = Depends(get_db)):
+    image = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     return image
+
+def calculate_sha1(filepath: str) -> str:
+    sha1 = hashlib.sha1()
+    try:
+        with open(filepath, 'rb') as f:
+            while True:
+                data = f.read(65536)
+                if not data:
+                    break
+                sha1.update(data)
+        return sha1.hexdigest()
+    except IOError:
+        return None
+
+def sync_images(db: Session):
+    existing_images = {img.id: img for img in db.query(models.Image).all()}
+    
+    # Walk directory
+    for root, dirs, files in os.walk(IMAGES_DIR):
+        for file in files:
+            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, IMAGES_DIR)
+                
+                # Calculate Hash
+                file_hash = calculate_sha1(full_path)
+                if not file_hash:
+                    continue
+                
+                if file_hash not in existing_images:
+                    # New image
+                    db_image = models.Image(id=file_hash, path=rel_path)
+                    db.add(db_image)
+                else:
+                    # Existing image: check path
+                    existing_img = existing_images[file_hash]
+                    if existing_img.path != rel_path:
+                        # Path mismatch. Check if old path is invalid (doesn't exist)
+                        old_full_path = os.path.join(IMAGES_DIR, existing_img.path)
+                        if not os.path.exists(old_full_path):
+                            # Old path gone, update to new path
+                            existing_img.path = rel_path
+                            db.add(existing_img)
+                        # Else: duplicate content. We keep the old path as canonical for now.
+    
+    db.commit()

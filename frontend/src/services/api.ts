@@ -9,7 +9,7 @@ export const api = {
         return response.json();
     },
 
-    getImageUrl(filename: string): string {
-        return `/images/${filename}`;
+    getImageUrl(path: string): string {
+        return `/images/${path}`;
     }
 };

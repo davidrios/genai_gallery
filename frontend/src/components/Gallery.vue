@@ -37,20 +37,20 @@ onMounted(async () => {
       <div v-for="image in images" :key="image.id" class="group relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300">
         <div class="aspect-w-1 aspect-h-1 w-full overflow-hidden bg-gray-200 dark:bg-gray-700 xl:aspect-w-7 xl:aspect-h-8">
           <img 
-            :src="api.getImageUrl(image.filename)" 
-            :alt="image.filename" 
+            :src="api.getImageUrl(image.path)" 
+            :alt="image.path" 
             class="h-full w-full object-cover object-center group-hover:opacity-75 transition-opacity duration-300"
             loading="lazy"
           />
         </div>
         <div class="p-4">
-          <h3 class="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">{{ image.filename }}</h3>
+          <h3 class="mt-1 text-sm text-gray-500 dark:text-gray-400 truncate">{{ image.path }}</h3>
           <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ new Date(image.created_at).toLocaleDateString() }}</p>
         </div>
         
         <!-- Hover overlay with rudimentary prompt view (expandable later) -->
         <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-             <a :href="api.getImageUrl(image.filename)" target="_blank" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
+             <a :href="api.getImageUrl(image.path)" target="_blank" class="px-4 py-2 bg-white text-black rounded-full font-medium hover:bg-gray-100 transition-colors">
                  View Full
              </a>
         </div>

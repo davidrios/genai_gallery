@@ -1,6 +1,5 @@
 export interface Image {
-  id: number;
-  filename: string;
+  id: string;
   path: string;
   created_at: string;
   prompt?: string;

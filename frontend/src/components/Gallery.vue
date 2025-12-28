@@ -6,22 +6,43 @@ import type { Image } from '@/types';
 const images = ref<Image[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+const sortOrder = ref<'asc' | 'desc'>('desc');
 
-onMounted(async () => {
+const fetchImages = async () => {
+  loading.value = true;
+  error.value = null;
   try {
-    images.value = await api.getImages();
+    images.value = await api.getImages(sortOrder.value);
   } catch (e) {
     error.value = 'Failed to load images. Is the backend running?';
     console.error(e);
   } finally {
     loading.value = false;
   }
+};
+
+onMounted(() => {
+  fetchImages();
 });
+
+const toggleSort = () => {
+  sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc';
+  fetchImages();
+};
 </script>
 
 <template>
   <div class="container mx-auto p-4">
-    <h1 class="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100">GenAI Gallery</h1>
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">GenAI Gallery</h1>
+      <button 
+        @click="toggleSort"
+        class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
+      >
+        <span>Sort by Date</span>
+        <span class="text-xs uppercase bg-gray-100 dark:bg-gray-900 px-2 py-0.5 rounded">{{ sortOrder }}</span>
+      </button>
+    </div>
     
     <div v-if="loading" class="text-center py-10">
       <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>

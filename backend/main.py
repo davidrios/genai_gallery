@@ -1,5 +1,6 @@
 import os
 import hashlib
+from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,10 +29,16 @@ app.add_middleware(
 app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")
 
 @app.get("/api/images")
-def list_images(db: Session = Depends(get_db)):
+def list_images(sort: str = "desc", db: Session = Depends(get_db)):
     sync_images(db)
-    # Order by created_at desc
-    images = db.query(models.Image).order_by(models.Image.created_at.desc()).all()
+    
+    query = db.query(models.Image)
+    if sort == "asc":
+        query = query.order_by(models.Image.created_at.asc())
+    else:
+        query = query.order_by(models.Image.created_at.desc())
+        
+    images = query.all()
     return images
 
 @app.get("/api/images/{image_id}")
@@ -64,6 +71,10 @@ def sync_images(db: Session):
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, IMAGES_DIR)
                 
+                # Get modification time
+                mtime = os.path.getmtime(full_path)
+                created_at = datetime.fromtimestamp(mtime)
+
                 # Calculate Hash
                 file_hash = calculate_sha1(full_path)
                 if not file_hash:
@@ -71,11 +82,17 @@ def sync_images(db: Session):
                 
                 if file_hash not in existing_images:
                     # New image
-                    db_image = models.Image(id=file_hash, path=rel_path)
+                    db_image = models.Image(id=file_hash, path=rel_path, created_at=created_at)
                     db.add(db_image)
                 else:
                     # Existing image: check path
                     existing_img = existing_images[file_hash]
+                    
+                    # Update mtime if needed (though sha1 is same, mtime might be what we want as "created_at" source of truth)
+                    if existing_img.created_at != created_at:
+                         existing_img.created_at = created_at
+                         db.add(existing_img)
+
                     if existing_img.path != rel_path:
                         # Path mismatch. Check if old path is invalid (doesn't exist)
                         old_full_path = os.path.join(IMAGES_DIR, existing_img.path)

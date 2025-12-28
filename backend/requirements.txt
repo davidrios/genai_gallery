@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-multipart
+# aiofiles might be useful for serving files if we go that route, but statichandler is built in

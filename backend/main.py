@@ -8,6 +8,7 @@ from typing import List
 import models
 import database
 from database import engine, get_db
+from config import IMAGES_DIR
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -21,12 +22,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configuration
-# For demo purposes, we'll look for an 'images' folder in the parent directory or current directory
-IMAGES_DIR = os.getenv("IMAGES_DIR", os.path.join(os.path.dirname(__file__), "../images"))
-if not os.path.exists(IMAGES_DIR):
-    os.makedirs(IMAGES_DIR, exist_ok=True)
 
 # Mount images directory to serve static files
 app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")

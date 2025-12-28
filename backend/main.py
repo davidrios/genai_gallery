@@ -235,27 +235,22 @@ def extract_metadata(filepath: str) -> dict:
                         flattened_key = f"inputs.{key}"
                         
                         # We store as list of tuples locally to handle duplicates?
-                        # But dictionary key overrides.
-                        # If I have 2 LoadCheckpoints, both have 'ckpt_name'.
-                        # If I use dict, I lose one.
-                        # Should I use a list?
-                        # The function signature says return dict so far.
-                        # Let's verify what user wants. "save in the database a key named inputs.clip_name"
-                        # If I have two, maybe saving one is enough, or maybe I should accumulate.
-                        # Let's accumulate into a list of items to return.
-                        pass
-
             # Reworking to return list of (key, value)
-            results = []
+            items = []
             for node_id, node_data in data.items():
                 inputs = node_data.get('inputs', {})
-                for key, value in inputs.items():
-                    if key in ('type', 'device'):
+                for inp_key, inp_val in inputs.items():
+                    if inp_key in ('type', 'device'):
                         continue
-                    if is_scalar(value):
-                        results.append((f"inputs.{key}", str(value)))
-            
-            return results
+                    if is_scalar(inp_val):
+                        # We flatten as inputs.<key>
+                        # User requested to remove "inputs." prefix
+                        # items.append((f"inputs.{inp_key}", str(inp_val)))
+                        items.append((inp_key, str(inp_val)))
+                    elif isinstance(inp_val, list):
+                        pass # ignore arrays for now or join them?
+                
+            return items
 
     except Exception as e:
         print(f"Error extracting metadata from {filepath}: {e}")
@@ -285,6 +280,18 @@ def sync_images(db: Session):
         # Check again after acquiring lock (double-check locking)
         if time.time() - last_sync_time < SYNC_COOLDOWN:
             return
+            
+        # One-time migration: Remove 'inputs.' prefix from existing metadata
+        # We do this here or on startup. Doing it here ensures it runs within a session context if we needed one, 
+        # but we passed db session.
+        # However, checking every sync might be overkill, but it's a fast update if nothing matches.
+        # Better: run it on startup or just let it be. 
+        # Actually, let's just run it once here.
+        try:
+             db.execute(text("UPDATE image_metadata SET key = SUBSTR(key, 8) WHERE key LIKE 'inputs.%'"))
+             db.commit()
+        except Exception as e:
+             print(f"Migration error (harmless if already done): {e}")
 
         print("Starting sync...")
         existing_images = {img.id: img for img in db.query(models.Image).all()}

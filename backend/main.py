@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 import models
+import schemas
 import database
 from database import engine, get_db
 from config import IMAGES_DIR
@@ -41,7 +42,7 @@ def list_images(sort: str = "desc", db: Session = Depends(get_db)):
     images = query.all()
     return images
 
-@app.get("/api/images/{image_id}")
+@app.get("/api/images/{image_id}", response_model=schemas.Image)
 def get_image_details(image_id: str, db: Session = Depends(get_db)):
     image = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not image:

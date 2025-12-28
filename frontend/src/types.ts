@@ -3,6 +3,7 @@ export interface Image {
   path: string;
   created_at: string;
   prompt?: string;
+  metadata_items?: { key: string; value: string }[];
 }
 
 export interface Directory {

@@ -18,6 +18,14 @@ export const api = {
         return response.json();
     },
 
+    async getImage(id: string): Promise<Image> {
+        const response = await fetch(`/api/images/${id}`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch image details');
+        }
+        return response.json();
+    },
+
     getImageUrl(path: string): string {
         return `/images/${path}`;
     }

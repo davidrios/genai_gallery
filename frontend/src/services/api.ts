@@ -12,8 +12,8 @@ export const api = {
         return response.json();
     },
 
-    async browse(path: string = "", sort: 'asc' | 'desc' = 'desc', search: string = '', signal?: AbortSignal): Promise<BrowseResponse> {
-        const params = new URLSearchParams({ path, sort });
+    async browse(path: string = "", sort: 'asc' | 'desc' = 'desc', search: string = '', page: number = 1, signal?: AbortSignal): Promise<BrowseResponse> {
+        const params = new URLSearchParams({ path, sort, page: page.toString() });
         if (search) params.append('q', search);
 
         const response = await fetch(`/api/browse?${params.toString()}`, { signal });

@@ -87,8 +87,16 @@ def get_image_details(image_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Image not found")
     return image
 
-@app.get("/api/browse")
-def browse(path: str = "", sort: str = "desc", q: str = None, db: Session = Depends(get_db)):
+@app.get("/api/browse", response_model=schemas.BrowseResponse)
+def browse(
+    path: str = "", 
+    sort: str = "desc", 
+    q: str = None, 
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    import math
     # Security check to prevent path traversal
     if ".." in path or path.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid path")
@@ -162,9 +170,21 @@ def browse(path: str = "", sort: str = "desc", q: str = None, db: Session = Depe
             if img_dir == path:
                 results.append(img)
             
+    
+    # Pagination Logic
+    total_count = len(results)
+    total_pages = math.ceil(total_count / limit) if limit > 0 else 1
+    
+    start = (page - 1) * limit
+    end = start + limit
+    paginated_results = results[start:end]
+            
     return {
         "directories": directories,
-        "images": results
+        "images": paginated_results,
+        "total": total_count,
+        "page": page,
+        "pages": total_pages
     }
 
 @app.get("/api/search", response_model=schemas.PaginatedImageResponse)

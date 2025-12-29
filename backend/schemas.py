@@ -29,3 +29,13 @@ class PaginatedImageResponse(BaseModel):
     size: int
     pages: int
 
+class Directory(BaseModel):
+    name: str
+    path: str
+
+class BrowseResponse(BaseModel):
+    directories: List[Directory]
+    images: List[Image]
+    total: int
+    page: int
+    pages: int

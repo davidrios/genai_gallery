@@ -14,4 +14,7 @@ export interface Directory {
 export interface BrowseResponse {
   directories: Directory[];
   images: Image[];
+  total: number;
+  page: number;
+  pages: number;
 }

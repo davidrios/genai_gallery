@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import Gallery from './components/Gallery.vue'
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
   <div class="dark bg-gray-900 min-h-screen text-white">
-    <Gallery />
+    <RouterView />
   </div>
 </template>

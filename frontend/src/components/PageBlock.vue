@@ -14,8 +14,9 @@ const root = ref<HTMLElement | null>(null);
 
 useIntersectionObserver(
   root,
-  ([{ isIntersecting }]) => {
-    if (isIntersecting) {
+  (entries) => {
+    const entry = entries[0];
+    if (entry?.isIntersecting) {
       emit('visible', props.page);
     }
   },

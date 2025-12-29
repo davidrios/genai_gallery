@@ -44,6 +44,10 @@ app.add_middleware(
 # Mount images directory to serve static files
 app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")
 
+# Mount frontend assets
+
+
+
 @app.get("/api/images")
 def list_images(sort: str = "desc", q: str = None, db: Session = Depends(get_db)):
     sync_images(db)
@@ -640,9 +644,40 @@ def sync_images(db: Session):
     finally:
         sync_lock.release()
 
+# Mount frontend assets
+import sys
+# Determine path to web directory
+# In development, it might be in src/genai_gallery/web
+# In installed package, it is adjacent to this file
+web_dir = os.path.join(os.path.dirname(__file__), "web")
+
+if os.path.exists(web_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(web_dir, "assets")), name="assets")
+
+    # Serve index.html for root and SPA fallback
+    from fastapi.responses import FileResponse
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Allow API calls (defined above) to pass through? 
+        # FastAPI executes in order. Since this is the LAST route, it captures everything else.
+        # But we must ensure it doesn't capture /api/ (which handles 404s itself usually?)
+        # If /api/ route is missing, it falls through here.
+        # We should only return index.html for non-api routes.
+        if full_path.startswith("api/") or full_path.startswith("images/"):
+             raise HTTPException(status_code=404, detail="Not found")
+        
+        # Check if file exists in web dir (e.g. favicon.ico)
+        file_path = os.path.join(web_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        return FileResponse(os.path.join(web_dir, "index.html"))
+
 def main():
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="127.0.0.1", port=port)
 
 if __name__ == "__main__":
     main()

@@ -1,2 +1,3 @@
 __pycache__
 .venv
+src/genai_gallery/web/

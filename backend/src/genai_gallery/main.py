@@ -13,11 +13,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
 
-import models
-import schemas
-import database
-from database import engine, get_db
-from config import IMAGES_DIR
+from . import models
+from . import schemas
+from . import database
+from .database import engine, get_db
+from .config import IMAGES_DIR
 
 models.Base.metadata.create_all(bind=engine)
 

@@ -36,6 +36,16 @@ const fetchContent = async () => {
     const response = await api.browse(currentPath.value, sortOrder.value, q, abortController.signal);
     images.value = response.images;
     directories.value = response.directories;
+
+    // Deep Link Check after content load
+    const viewPath = route.query.view as string;
+    if (viewPath && !selectedImage.value) {
+        const img = images.value.find(i => i.path === viewPath);
+        if (img) {
+            openImage(img, false);
+        }
+    }
+
   } catch (e: any) {
     if (e.name === 'AbortError') {
         // Ignore abort errors
@@ -44,10 +54,8 @@ const fetchContent = async () => {
     error.value = 'Failed to load content. Is the backend running?';
     console.error(e);
   } finally {
-    // Only set loading false if this request wasn't aborted
-    // (Though if aborted, we return early above, so this is mostly for success/real error)
     if (abortController?.signal.aborted) {
-        // Do nothing, a new request is pending or we are cancelled
+        // Do nothing
     } else {
         loading.value = false;
     }
@@ -69,12 +77,37 @@ const onSearchInput = () => {
 
 watch(
   () => route.query,
-  (newQuery) => {
-    // Update search query if it changed in URL (e.g. back button)
+  (newQuery, oldQuery) => {
+    // Update search query if it changed in URL
     if (newQuery.q !== searchQuery.value) {
         searchQuery.value = (newQuery.q as string) || '';
     }
-    fetchContent();
+
+    // Handle deep linking for overlay
+    const viewPath = newQuery.view as string;
+    if (viewPath) {
+        if (!selectedImage.value || selectedImage.value.path !== viewPath) {
+            const img = images.value.find(i => i.path === viewPath);
+            if (img) {
+                openImage(img, false); 
+            }
+        }
+    } else {
+        if (selectedImage.value) {
+            closeOverlay(false);
+        }
+    }
+
+    // Optimization: Check if we need to refetch content
+    // We only refetch if 'path', 'sort', or 'q' changed. 'view' change should not trigger fetch.
+    const getSignificantParams = (q: any) => {
+        const { view, ...rest } = q;
+        return JSON.stringify(rest);
+    };
+
+    if (getSignificantParams(newQuery) !== getSignificantParams(oldQuery || {})) {
+        fetchContent();
+    }
   }
 );
 
@@ -109,12 +142,20 @@ const isVideo = (path: string) => {
     return ['mp4', 'webm', 'mov'].includes(ext || '');
 };
 
-const openImage = async (image: Image) => {
+const openImage = async (image: Image, updateRoute = true) => {
   selectedImage.value = image;
+  
+  if (updateRoute) {
+    router.push({ query: { ...route.query, view: image.path } });
+  }
+
   isLoadingDetails.value = true;
   try {
     const details = await api.getImage(image.id);
-    selectedImage.value = details;
+    // Only update if we are still viewing the same image (race condition check)
+    if (selectedImage.value?.id === image.id) {
+         selectedImage.value = details;
+    }
   } catch (e) {
     console.error("Failed to load image details", e);
   } finally {
@@ -122,9 +163,14 @@ const openImage = async (image: Image) => {
   }
 };
 
-const closeOverlay = () => {
+const closeOverlay = (updateRoute = true) => {
     selectedImage.value = null;
     isLoadingDetails.value = false;
+    if (updateRoute) {
+        const query = { ...route.query };
+        delete query.view;
+        router.push({ query });
+    }
 };
 
 // Navigation
